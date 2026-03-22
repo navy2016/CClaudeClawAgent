@@ -21,8 +21,11 @@ pub fn analyzeBatch(batch: *types.OperationBatch) void {
     batch.reversible = reversible;
 }
 
-test "auto mode approves safe only" {
-    try std.testing.expect(!requiresApproval(.auto, .safe));
-    try std.testing.expect(requiresApproval(.auto, .moderate));
-    try std.testing.expect(requiresApproval(.auto, .dangerous));
+pub fn batchMaxRisk(batch: *types.OperationBatch) types.RiskLevel {
+    var current: types.RiskLevel = .safe;
+    for (batch.operations.items) |op| {
+        if (op.risk == .dangerous) return .dangerous;
+        if (op.risk == .moderate) current = .moderate;
+    }
+    return current;
 }

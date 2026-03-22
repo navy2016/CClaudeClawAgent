@@ -31,6 +31,11 @@ class ChatViewModel(
     var canRedo by mutableStateOf(false)
         private set
 
+    init {
+        // 演示模式：初始化后自动展示一个待审批批次，让用户可以测试审批功能
+        loadDemoPendingBatch()
+    }
+
     fun onInputChange(value: String) {
         input = value
     }
@@ -58,8 +63,55 @@ class ChatViewModel(
         reduce(session.reject(batch.batchId, "user rejected"))
     }
 
+    fun dismissApproval() {
+        pendingApproval = null
+    }
+
     fun undo() = reduce(session.undo())
     fun redo() = reduce(session.redo())
+
+    private fun loadDemoPendingBatch() {
+        // 演示数据：让用户体验审批流程
+        pendingApproval = com.cclaudeclawagent.data.model.ApprovalUiModel(
+            batchId = "demo-batch-001",
+            summary = "Demo: 初始化演示批次，测试原子授权与撤回重做",
+            riskLevel = "MODERATE",
+            reversible = true,
+            operations = listOf(
+                com.cclaudeclawagent.data.model.ApprovalOperationUiModel(
+                    id = "demo-op-1",
+                    type = "context_update",
+                    target = "USER.md",
+                    preview = "Append: 用户偏好测试条目",
+                    riskLevel = "SAFE",
+                    reversible = true
+                ),
+                com.cclaudeclawagent.data.model.ApprovalOperationUiModel(
+                    id = "demo-op-2",
+                    type = "workflow_transition",
+                    target = "execute",
+                    preview = "Advance to execute stage",
+                    riskLevel = "MODERATE",
+                    reversible = true
+                )
+            )
+        )
+        workflow = com.cclaudeclawagent.data.model.WorkflowUiModel(
+            runId = "demo-run-001",
+            workflowType = "coding",
+            state = "planning",
+            currentStage = "plan",
+            stages = listOf(
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("clarify", "done", 1.0),
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("gather_context", "done"),
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("plan", "doing"),
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("execute", "todo"),
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("evaluate", "todo"),
+                com.cclaudeclawagent.data.model.WorkflowStageUiModel("summarize", "todo")
+            ),
+            latestLesson = "首次启动演示：请点击下方按钮体验原子授权、撤回与重做"
+        )
+    }
 
     private fun reduce(snapshot: com.cclaudeclawagent.nativebridge.NativeSnapshot) {
         pendingApproval = snapshot.pendingApproval

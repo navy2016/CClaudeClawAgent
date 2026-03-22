@@ -14,17 +14,19 @@ pub const Session = struct {
     workflow_engine: workflow_mod.WorkflowEngine,
     pending_batch: ?types.OperationBatch = null,
 
-    pub fn init(allocator: std.mem.Allocator, data_dir: []const u8) !*Session {
-        const self = try allocator.create(Session);
-        const context_dir = try std.fs.path.join(allocator, &.{ data_dir, "context" });
-        defer allocator.free(context_dir);
+    pub fn init(ally: std.mem.Allocator, data_dir: []const u8) !*Session {
+        const self = try ally.create(Session);
+        const context_dir = try std.fs.path.join(ally, &.{ data_dir, "context" });
+        
         self.* = .{
-            .allocator = allocator,
-            .context_store = try context_mod.ContextStore.init(allocator, context_dir),
-            .ledger = ledger_mod.Ledger.init(allocator),
-            .workflow_engine = workflow_mod.WorkflowEngine.init(allocator),
+            .allocator = ally,
+            .context_store = try context_mod.ContextStore.init(ally, context_dir),
+            .ledger = ledger_mod.Ledger.init(ally),
+            .workflow_engine = workflow_mod.WorkflowEngine.init(ally),
         };
+        
         try self.context_store.ensureDefaults();
+        ally.free(context_dir);
         return self;
     }
 
@@ -36,8 +38,9 @@ pub const Session = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn sendText(self: *Session, text: []const u8) ![]u8 {
+    pub fn sendText(self: *Session, text: []const u8) ![]const u8 {
         const workflow_type = classifyWorkflow(text);
+        
         if (self.workflow_engine.run == null) {
             try self.workflow_engine.start(workflow_type);
         }
@@ -46,8 +49,12 @@ pub const Session = struct {
         if (mentionsWriteLikeAction(text)) {
             var batch = try self.makeDemoBatch(text);
             auth.analyzeBatch(&batch);
-            const max_risk = batchMaxRisk(&batch);
-            batch.status = if (auth.requiresApproval(self.approval_mode, max_risk)) .awaiting_approval else .approved;
+            const max_risk = auth.batchMaxRisk(&batch);
+            batch.status = if (auth.requiresApproval(self.approval_mode, max_risk)) 
+                .awaiting_approval 
+            else 
+                .approved;
+                
             if (batch.status == .approved) {
                 try self.ledger.commit(&batch);
             } else {
@@ -59,22 +66,25 @@ pub const Session = struct {
         return try self.snapshotJson(replyFor(text));
     }
 
-    pub fn approveBatch(self: *Session, batch_id: []const u8, scope: []const u8) ![]u8 {
+    pub fn approveBatch(self: *Session, batch_id: []const u8, scope: []const u8) ![]const u8 {
         _ = scope;
         if (self.pending_batch == null) return try self.snapshotJson("No pending batch.");
+        
         var batch = self.pending_batch.?;
         self.pending_batch = null;
+        
         if (!std.mem.eql(u8, batch.id, batch_id)) {
             self.pending_batch = batch;
             return try self.snapshotJson("Batch id mismatch.");
         }
+        
         try self.ledger.commit(&batch);
         try self.workflow_engine.evaluate(0.86, "Committed approved batch successfully.");
         self.workflow_engine.advance();
         return try self.snapshotJson("Batch approved and committed.");
     }
 
-    pub fn rejectBatch(self: *Session, batch_id: []const u8, reason: []const u8) ![]u8 {
+    pub fn rejectBatch(self: *Session, batch_id: []const u8, reason: []const u8) ![]const u8 {
         if (self.pending_batch) |*batch| {
             if (std.mem.eql(u8, batch.id, batch_id)) {
                 batch.status = .rejected;
@@ -86,13 +96,13 @@ pub const Session = struct {
         return try self.snapshotJson("Batch rejected; workflow returned to revise/plan path.");
     }
 
-    pub fn undo(self: *Session) ![]u8 {
+    pub fn undo(self: *Session) ![]const u8 {
         _ = self.ledger.undoLast();
         try self.workflow_engine.evaluate(0.4, "Undo triggered by user; return to revise stage.");
         return try self.snapshotJson("Last committed batch has been undone.");
     }
 
-    pub fn redo(self: *Session) ![]u8 {
+    pub fn redo(self: *Session) ![]const u8 {
         _ = self.ledger.redoLast();
         try self.workflow_engine.evaluate(0.82, "Redo restored a previously rolled back batch.");
         return try self.snapshotJson("Last undone batch has been redone.");
@@ -107,12 +117,12 @@ pub const Session = struct {
     }
 
     fn mentionsWriteLikeAction(text: []const u8) bool {
-        return containsAny(text, &.{ "write", "edit", "create", "修改", "写入", "创建" });
+        return containsAny(text, &.{ "write", "edit", "create", "修改", "写入", "创建", "delete", "remove" });
     }
 
     fn containsAny(text: []const u8, needles: []const []const u8) bool {
         for (needles) |needle| {
-            if (std.ascii.indexOfIgnoreCase(text, needle) != null) return true;
+            if (std.ascii.indexOfIgnoreCase(text, needle)) |_| return true;
         }
         return false;
     }
@@ -128,11 +138,13 @@ pub const Session = struct {
     }
 
     fn makeDemoBatch(self: *Session, text: []const u8) !types.OperationBatch {
-        var batch = types.OperationBatch{
-            .id = try std.fmt.allocPrint(self.allocator, "batch-{d}", .{std.time.microTimestamp()}),
-            .summary = try std.fmt.allocPrint(self.allocator, "Atomic batch for: {s}", .{text}),
-        };
-        try batch.operations.append(self.allocator, .{
+        const timestamp = std.time.microTimestamp();
+        const batch_id = try std.fmt.allocPrint(self.allocator, "batch-{d}", .{timestamp});
+        const summary = try std.fmt.allocPrint(self.allocator, "Atomic batch for: {s}", .{text});
+        
+        var batch = try types.OperationBatch.init(self.allocator, batch_id, summary);
+        
+        try batch.operations.append(.{
             .id = try self.allocator.dupe(u8, "op-file-write"),
             .op_type = .file_write,
             .target = try self.allocator.dupe(u8, "/workspace/target.txt"),
@@ -143,7 +155,8 @@ pub const Session = struct {
             .before_snapshot = try self.allocator.dupe(u8, ""),
             .after_snapshot = try self.allocator.dupe(u8, "new content"),
         });
-        try batch.operations.append(self.allocator, .{
+        
+        try batch.operations.append(.{
             .id = try self.allocator.dupe(u8, "op-workflow-transition"),
             .op_type = .workflow_transition,
             .target = try self.allocator.dupe(u8, @tagName(self.workflow_engine.run.?.current_stage)),
@@ -154,19 +167,13 @@ pub const Session = struct {
             .before_snapshot = null,
             .after_snapshot = null,
         });
+        
+        self.allocator.free(batch_id);
+        self.allocator.free(summary);
         return batch;
     }
 
-    fn batchMaxRisk(batch: *types.OperationBatch) types.RiskLevel {
-        var current: types.RiskLevel = .safe;
-        for (batch.operations.items) |op| {
-            if (op.risk == .dangerous) return .dangerous;
-            if (op.risk == .moderate) current = .moderate;
-        }
-        return current;
-    }
-
-    pub fn snapshotJson(self: *Session, assistant_reply: []const u8) ![]u8 {
+    pub fn snapshotJson(self: *Session, assistant_reply: []const u8) ![]const u8 {
         var buf = std.ArrayList(u8).init(self.allocator);
         errdefer buf.deinit();
         const w = buf.writer();
@@ -194,6 +201,7 @@ pub const Session = struct {
             if (self.ledger.canRedo()) "true" else "false",
         });
         try w.writeByte('}');
+        
         return buf.toOwnedSlice();
     }
 
@@ -205,8 +213,9 @@ pub const Session = struct {
         try writer.writeAll(",\"summary\":");
         try jsonw.writeQuoted(writer, batch.summary);
         try writer.writeAll(",\"riskLevel\":");
-        try jsonw.writeQuoted(writer, jsonw.enumTextRisk(batchMaxRisk(batch)));
+        try jsonw.writeQuoted(writer, jsonw.enumTextRisk(auth.batchMaxRisk(batch)));
         try std.fmt.format(writer, ",\"reversible\":{s},\"operations\":[", .{if (batch.reversible) "true" else "false"});
+        
         for (batch.operations.items, 0..) |op, idx| {
             if (idx != 0) try writer.writeByte(',');
             try writer.writeByte('{');
@@ -238,6 +247,7 @@ pub const Session = struct {
         try writer.writeAll(",\"currentStage\":");
         try jsonw.writeQuoted(writer, jsonw.enumTextStage(run.current_stage));
         try writer.writeAll(",\"stages\":[");
+        
         for (run.stages.items, 0..) |stage, idx| {
             if (idx != 0) try writer.writeByte(',');
             try writer.writeByte('{');
