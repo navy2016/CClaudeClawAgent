@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">CClaudeClawAgent</string>
+    <string name="send">发送</string>
+    <string name="input_hint">描述你的任务、研究目标或代码修改需求…</string>
+    <string name="undo">撤回</string>
+    <string name="redo">重做</string>
+    <string name="approve_once">允许一次</string>
+    <string name="approve_stage">允许本阶段</string>
+    <string name="reject">拒绝</string>
+    <string name="workflow">工作流</string>
+    <string name="approval">授权审批</string>
+</resources>
