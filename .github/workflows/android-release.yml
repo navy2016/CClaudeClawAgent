@@ -19,14 +19,21 @@ jobs:
 
       - name: Install Android NDK
         uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r26c
           add-to-path: true
+          link-to-sdk: true
 
       - name: Build Zig core for Android
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cd native/zig
-          # Build for Android arm64 (optimize is set in build.zig)
+          # Set up Android sysroot for libc
+          export ZIG_TARGET_MCPU=generic
+          export ZIG_LIBC="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          # Build for Android arm64 with bundled libc
           zig build -Dtarget=aarch64-linux-android
           mkdir -p ../../app/src/main/jniLibs/arm64-v8a
           cp zig-out/lib/libcclaudeclaw.so ../../app/src/main/jniLibs/arm64-v8a/
