@@ -20,11 +20,9 @@ pub fn build(b: *std.Build) void {
     });
 
     lib.linkLibC();
-    lib.addIncludePath(b.path("src"));
     
     // Android NDK specific settings
-    lib.defineCMacro("ANDROID", null);
-    lib.strip = true;
+    lib.root_module.addCMacro("ANDROID", "");
     
     b.installArtifact(lib);
 }
