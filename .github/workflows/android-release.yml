@@ -26,8 +26,8 @@ jobs:
       - name: Build Zig core for Android
         run: |
           cd native/zig
-          # Build for Android arm64
-          zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseSmall
+          # Build for Android arm64 (optimize is set in build.zig)
+          zig build -Dtarget=aarch64-linux-android
           mkdir -p ../../app/src/main/jniLibs/arm64-v8a
           cp zig-out/lib/libcclaudeclaw.so ../../app/src/main/jniLibs/arm64-v8a/
 
